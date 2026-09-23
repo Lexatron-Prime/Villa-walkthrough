@@ -35,15 +35,15 @@ function materialIsLandscape(material){const mats=Array.isArray(material)?materi
 function getBuildingBounds(){const all=new THREE.Box3().setFromObject(root),candidates=[];root.traverse(o=>{if(!o.isMesh||!o.geometry||!o.geometry.attributes.position||materialIsLandscape(o.material))return;const b=new THREE.Box3().setFromObject(o),s=b.getSize(new THREE.Vector3()),v=s.x*s.y*s.z;if(s.y>=.02&&v>=.0001)candidates.push(b)});if(!candidates.length)return all;const b=new THREE.Box3();candidates.forEach(x=>b.union(x));return b}
 function placeInsideBuilding(){
  const b=getBuildingBounds(),s=b.getSize(new THREE.Vector3());
- // Keep the spawn inside the gray building, at its middle interior level.
- // Do not use the green landscape bounds or the lowest mesh point as the eye level.
  const eyeY=b.min.y+Math.max(1.55,Math.min(1.8,s.y*.42));
  const x=b.min.x+s.x*.5;
  const z=b.min.z+s.z*.5;
- camera.position.set(x,eyeY,z);
- interiorFill.position.set(x,eyeY+2,z);
- interiorBounce.position.set(x-s.x*.3,eyeY+1,z+s.z*.25);
- const target=new THREE.Vector3(x+s.x*.15,eyeY,z-s.z*.25);
+ // Raise the requested spawn height by 10 metres while preserving its building-centered position.
+ const raisedY=eyeY+10;
+ camera.position.set(x,raisedY,z);
+ interiorFill.position.set(x,raisedY+2,z);
+ interiorBounce.position.set(x-s.x*.3,raisedY+1,z+s.z*.25);
+ const target=new THREE.Vector3(x+s.x*.15,raisedY,z-s.z*.25);
  camera.lookAt(target);
  yaw=Math.atan2(target.x-x,target.z-z);pitch=0;
 }
