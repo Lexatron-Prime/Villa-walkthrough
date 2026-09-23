@@ -15,6 +15,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;font-f
 <script type="module">
 import * as THREE from "three";
 import {GLTFLoader} from "https://unpkg.com/three@0.180.0/examples/jsm/loaders/GLTFLoader.js";
+
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x9fb7c8);
 scene.fog=new THREE.Fog(0x9fb7c8,80,220);
@@ -26,15 +27,54 @@ scene.add(new THREE.AmbientLight(0xffffff,1.15));
 const sun=new THREE.DirectionalLight(0xfff4dc,1.8);sun.position.set(40,80,30);scene.add(sun);
 const interiorFill=new THREE.PointLight(0xffe7c2,1.8,80,1.8);scene.add(interiorFill);
 const interiorBounce=new THREE.PointLight(0xbdd9ff,1.5,70,1.6);scene.add(interiorBounce);
+
 let root,yaw=0,pitch=0,lookPointer=null,lastX=0,lastY=0;
 const loader=new GLTFLoader();
-function materialIsLandscape(material){const mats=Array.isArray(material)?material:[material];return mats.some(m=>{if(!m||!m.color)return false;const c=m.color;return c.g>c.r*1.25&&c.g>c.b*1.18&&c.g>.12})}
-function getBuildingBounds(){const all=new THREE.Box3().setFromObject(root),candidates=[];root.traverse(o=>{if(!o.isMesh||!o.geometry||!o.geometry.attributes.position||materialIsLandscape(o.material))return;const b=new THREE.Box3().setFromObject(o),s=b.getSize(new THREE.Vector3()),v=s.x*s.y*s.z;if(s.y>=.02&&v>=.0001)candidates.push(b)});if(!candidates.length)return all;const b=new THREE.Box3();candidates.forEach(x=>b.union(x));return b}
-function placeInsideBuilding(){const b=getBuildingBounds(),s=b.getSize(new THREE.Vector3());const eyeY=b.min.y+Math.max(1.55,Math.min(1.8,s.y*.42));const x=b.min.x+s.x*.5;const z=b.min.z+s.z*.5;camera.position.set(x,eyeY,z);interiorFill.position.set(x,eyeY+2,z);interiorBounce.position.set(x-s.x*.3,eyeY+1,z+s.z*.25);const target=new THREE.Vector3(x+s.x*.15,eyeY,z-s.z*.25);camera.lookAt(target);yaw=Math.atan2(target.x-x,target.z-z);pitch=0}
-loader.load("./MODEL-02-09222026.glb",g=>{root=g.scene;scene.add(root);const before=new THREE.Box3().setFromObject(root),center=before.getCenter(new THREE.Vector3());root.position.sub(new THREE.Vector3(center.x,before.min.y,center.z));root.updateMatrixWorld(true);placeInsideBuilding();document.getElementById("start").style.display="none"},undefined,e=>{document.getElementById("start").innerHTML="<div>Could not load the villa model.</div>";console.error(e)});
-renderer.domElement.addEventListener("pointerdown",e=>{lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)});renderer.domElement.addEventListener("pointermove",e=>{if(e.pointerId!==lookPointer)return;yaw-=(e.clientX-lastX)*.004;pitch-=(e.clientY-lastY)*.003;pitch=Math.max(-1.25,Math.min(1.25,pitch));lastX=e.clientX;lastY=e.clientY});renderer.domElement.addEventListener("pointerup",()=>lookPointer=null);renderer.domElement.addEventListener("pointercancel",()=>lookPointer=null);
+function isLandscapeMesh(o){
+  const mats=Array.isArray(o.material)?o.material:[o.material];
+  return mats.some(m=>{if(!m||!m.color)return false;const c=m.color;return c.g>c.r*1.18&&c.g>c.b*1.12&&c.g>.10});
+}
+function buildingMeshes(){
+  const result=[];
+  root.traverse(o=>{if(o.isMesh&&o.geometry?.attributes?.position&&!isLandscapeMesh(o))result.push(o)});
+  return result;
+}
+function placeInsideGrayBuilding(){
+  const meshes=buildingMeshes();
+  if(!meshes.length)return;
+  // Use only non-green gray building meshes. The landscape is deliberately excluded.
+  const b=new THREE.Box3();meshes.forEach(m=>b.expandByObject(m));
+  const s=b.getSize(new THREE.Vector3());
+  const x=b.min.x+s.x*.50;
+  const z=b.min.z+s.z*.50;
+  // The camera is at the building's mid-height, not the landscape elevation.
+  const y=b.min.y+s.y*.50;
+  camera.position.set(x,y,z);
+  interiorFill.position.set(x,y+2,z);
+  interiorBounce.position.set(x-s.x*.25,y+1,z+s.z*.25);
+  const target=new THREE.Vector3(x+s.x*.15,y,z-s.z*.25);
+  camera.lookAt(target);
+  yaw=Math.atan2(target.x-x,target.z-z);
+  pitch=0;
+}
+loader.load("./MODEL-02-09222026.glb",g=>{
+  root=g.scene;scene.add(root);
+  const before=new THREE.Box3().setFromObject(root),center=before.getCenter(new THREE.Vector3());
+  root.position.sub(new THREE.Vector3(center.x,before.min.y,center.z));
+  root.updateMatrixWorld(true);
+  // Hide the green site/landscape entirely; it must never determine the spawn point.
+  root.traverse(o=>{if(o.isMesh&&isLandscapeMesh(o))o.visible=false});
+  placeInsideGrayBuilding();
+  document.getElementById("start").style.display="none";
+},undefined,e=>{document.getElementById("start").innerHTML="<div>Could not load the villa model.</div>";console.error(e)});
+
+renderer.domElement.addEventListener("pointerdown",e=>{lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)});
+renderer.domElement.addEventListener("pointermove",e=>{if(e.pointerId!==lookPointer)return;yaw-=(e.clientX-lastX)*.004;pitch-=(e.clientY-lastY)*.003;pitch=Math.max(-1.25,Math.min(1.25,pitch));lastX=e.clientX;lastY=e.clientY});
+renderer.domElement.addEventListener("pointerup",()=>lookPointer=null);renderer.domElement.addEventListener("pointercancel",()=>lookPointer=null);
 const keys={};addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
-const joystick=document.createElement("div");joystick.style.cssText="position:fixed;left:20px;bottom:55px;width:110px;height:110px;border-radius:55px;background:#0005;pointer-events:auto;touch-action:none";document.body.appendChild(joystick);const knob=document.createElement("div");knob.style.cssText="position:absolute;left:30px;top:30px;width:50px;height:50px;border-radius:25px;background:#fff9";joystick.appendChild(knob);let joyId=null,jx=0,jy=0;joystick.addEventListener("pointerdown",e=>{joyId=e.pointerId;joystick.setPointerCapture(e.pointerId);moveJoy(e)});joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyId)moveJoy(e)});joystick.addEventListener("pointerup",resetJoy);joystick.addEventListener("pointercancel",resetJoy);function moveJoy(e){const r=joystick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;if(Math.hypot(dx,dy)>38){const a=Math.atan2(dy,dx);dx=Math.cos(a)*38;dy=Math.sin(a)*38}jx=dx/38;jy=dy/38;knob.style.transform=`translate(${dx}px,${dy}px)`}function resetJoy(){joyId=null;jx=jy=0;knob.style.transform=""}
+const joystick=document.createElement("div");joystick.style.cssText="position:fixed;left:20px;bottom:55px;width:110px;height:110px;border-radius:55px;background:#0005;pointer-events:auto;touch-action:none";document.body.appendChild(joystick);const knob=document.createElement("div");knob.style.cssText="position:absolute;left:30px;top:30px;width:50px;height:50px;border-radius:25px;background:#fff9";joystick.appendChild(knob);let joyId=null,jx=0,jy=0;
+joystick.addEventListener("pointerdown",e=>{joyId=e.pointerId;joystick.setPointerCapture(e.pointerId);moveJoy(e)});joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyId)moveJoy(e)});joystick.addEventListener("pointerup",resetJoy);joystick.addEventListener("pointercancel",resetJoy);
+function moveJoy(e){const r=joystick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;if(Math.hypot(dx,dy)>38){const a=Math.atan2(dy,dx);dx=Math.cos(a)*38;dy=Math.sin(a)*38}jx=dx/38;jy=dy/38;knob.style.transform=`translate(${dx}px,${dy}px)`}function resetJoy(){joyId=null;jx=jy=0;knob.style.transform=""}
 const ray=new THREE.Raycaster();function blocked(next){if(!root)return false;const d=next.clone().sub(camera.position);d.y=0;const len=d.length();if(!len)return false;d.normalize();ray.set(camera.position.clone().setY(camera.position.y),d);const h=ray.intersectObject(root,true)[0];return h&&h.distance<Math.max(.35,len)}
 const clock=new THREE.Clock();function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);camera.rotation.order="YXZ";camera.rotation.set(pitch,yaw,0);let f=0,s=0;if(keys.w||keys.arrowup)f++;if(keys.s||keys.arrowdown)f--;if(keys.a||keys.arrowleft)s--;if(keys.d||keys.arrowright)s++;f-=jy;s+=jx;const speed=3,forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw)),side=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw)),next=camera.position.clone().add(forward.multiplyScalar(f*speed*dt).add(side.multiplyScalar(s*speed*dt)));if(!blocked(next))camera.position.copy(next);renderer.render(scene,camera)}animate();
 addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});document.querySelector("#start button").onclick=()=>document.getElementById("start").style.display="none";
