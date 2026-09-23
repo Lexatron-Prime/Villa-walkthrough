@@ -21,49 +21,69 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script type="module">
 import * as THREE from "three";
 import {GLTFLoader} from "https://unpkg.com/three@0.180.0/examples/jsm/loaders/GLTFLoader.js";
+
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x9fb7c8);
 scene.fog=new THREE.Fog(0x9fb7c8,80,220);
+
 const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.05,500);
-camera.position.set(0,1.65,0);
+camera.position.set(0,1.7,8);
+
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.5)); renderer.setSize(innerWidth,innerHeight);
-renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1;
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1;
 document.body.appendChild(renderer.domElement);
+
 scene.add(new THREE.HemisphereLight(0xffffff,0x667788,2));
 const sun=new THREE.DirectionalLight(0xffffff,2.2); sun.position.set(40,80,30); scene.add(sun);
-let root,modelBox;
+
+let root;
 const loader=new GLTFLoader();
 loader.load("./MODEL-02-09222026.glb",g=>{
- root=g.scene; scene.add(root);
- const box=new THREE.Box3().setFromObject(root);
- const center=box.getCenter(new THREE.Vector3());
- root.position.sub(new THREE.Vector3(center.x,box.min.y,center.z));
- modelBox=new THREE.Box3().setFromObject(root);
- const height=modelBox.max.y-modelBox.min.y;
- const depth=modelBox.max.z-modelBox.min.z;
- // Start in the middle level and middle of the model, rather than below the terrain.
- camera.position.set(0,modelBox.min.y+height*.50,0);
- // Face toward the model interior.
- yaw=Math.PI; pitch=0;
- document.getElementById("start").style.display="none";
-},undefined,e=>{document.getElementById("start").innerHTML="<div>Could not load the villa model.</div>";console.error(e)});
+  root=g.scene;
+  scene.add(root);
+
+  // Center the model on the ground plane without using the terrain as the camera origin.
+  const box=new THREE.Box3().setFromObject(root);
+  const center=box.getCenter(new THREE.Vector3());
+  root.position.sub(new THREE.Vector3(center.x, box.min.y, center.z));
+
+  // Place the camera at eye height just in front of the villa instead of beneath terrain.
+  const frontOffset=Math.max(6, (box.max.z - box.min.z) * 0.25);
+  camera.position.set(0, 1.7, frontOffset);
+  yaw = Math.PI;
+  pitch = 0;
+  document.getElementById("start").style.display="none";
+}, undefined, e=>{
+  document.getElementById("start").innerHTML="<div>Could not load the villa model.</div>";
+  console.error(e);
+});
+
 let yaw=0,pitch=0,lookPointer=null,lastX=0,lastY=0;
 renderer.domElement.addEventListener("pointerdown",e=>{lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)});
 renderer.domElement.addEventListener("pointermove",e=>{if(e.pointerId!==lookPointer)return;yaw-=(e.clientX-lastX)*.004;pitch-=(e.clientY-lastY)*.003;pitch=Math.max(-1.25,Math.min(1.25,pitch));lastX=e.clientX;lastY=e.clientY});
 renderer.domElement.addEventListener("pointerup",()=>lookPointer=null); renderer.domElement.addEventListener("pointercancel",()=>lookPointer=null);
+
 const keys={}; addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true); addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
 const joystick=document.createElement("div"); joystick.style.cssText="position:fixed;left:20px;bottom:55px;width:110px;height:110px;border-radius:55px;background:#0005;pointer-events:auto;touch-action:none;"; document.body.appendChild(joystick);
 const knob=document.createElement("div"); knob.style.cssText="position:absolute;left:30px;top:30px;width:50px;height:50px;border-radius:25px;background:#fff9;"; joystick.appendChild(knob);
+
 let joyId=null,jx=0,jy=0;
 joystick.addEventListener("pointerdown",e=>{joyId=e.pointerId;joystick.setPointerCapture(e.pointerId);moveJoy(e)}); joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyId)moveJoy(e)}); joystick.addEventListener("pointerup",resetJoy); joystick.addEventListener("pointercancel",resetJoy);
 function moveJoy(e){const r=joystick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;if(Math.hypot(dx,dy)>38){const a=Math.atan2(dy,dx);dx=Math.cos(a)*38;dy=Math.sin(a)*38} jx=dx/38;jy=dy/38;knob.style.transform=`translate(${dx}px,${dy}px)`}
 function resetJoy(){joyId=null;jx=jy=0;knob.style.transform=""}
+
 const ray=new THREE.Raycaster();
 function blocked(next){if(!root)return false;const dir=next.clone().sub(camera.position);dir.y=0;const len=dir.length();if(!len)return false;dir.normalize();ray.set(camera.position.clone().setY(camera.position.y),dir);const hits=ray.intersectObject(root,true);return hits.length&&hits[0].distance<Math.max(.35,len)}
+
 const clock=new THREE.Clock();
 function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);camera.rotation.order="YXZ";camera.rotation.set(pitch,yaw,0);let f=0,s=0;if(keys.w||keys.arrowup)f++;if(keys.s||keys.arrowdown)f--;if(keys.a||keys.arrowleft)s--;if(keys.d||keys.arrowright)s++;f+=-jy;s+=jx;const speed=3,forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw)),side=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));const next=camera.position.clone().add(forward.multiplyScalar(f*speed*dt).add(side.multiplyScalar(s*speed*dt)));if(!blocked(next))camera.position.copy(next);renderer.render(scene,camera)}
-animate(); addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+animate();
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 </script>
 </body>
 </html>
