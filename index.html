@@ -5,13 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Villa Walkthrough</title>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;font-family:system-ui,sans-serif}
-canvas{display:block;width:100%;height:100%;touch-action:none}
-#ui{position:fixed;inset:0;pointer-events:none;color:white}
-#title{position:absolute;top:env(safe-area-inset-top,12px);left:12px;padding:8px 11px;background:#0008;border-radius:10px;font-size:14px}
-#help{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);padding:8px 12px;background:#0008;border-radius:12px;font-size:12px;text-align:center}
-#start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#111;color:white;z-index:5}
-#start button{font-size:18px;padding:14px 22px;border:0;border-radius:12px}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;font-family:system-ui,sans-serif}canvas{display:block;width:100%;height:100%;touch-action:none}#ui{position:fixed;inset:0;pointer-events:none;color:#fff}#title{position:absolute;top:12px;left:12px;padding:8px 11px;background:#0008;border-radius:10px;font-size:14px}#help{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);padding:8px 12px;background:#0008;border-radius:12px;font-size:12px;text-align:center}#start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#111;color:#fff;z-index:5}#start button{font-size:18px;padding:14px 22px;border:0;border-radius:12px}
 </style>
 </head>
 <body>
@@ -20,182 +14,86 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.180.0/build/three.module.js"}}</script>
 <script type="module">
 import * as THREE from "three";
-import { GLTFLoader } from "https://unpkg.com/three@0.180.0/examples/jsm/loaders/GLTFLoader.js";
+import {GLTFLoader} from "https://unpkg.com/three@0.180.0/examples/jsm/loaders/GLTFLoader.js";
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9fb7c8);
-scene.fog = new THREE.Fog(0x9fb7c8, 80, 220);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x9fb7c8);
+scene.fog=new THREE.Fog(0x9fb7c8,80,220);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.05,500);
+const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x667788,2));
+const sun=new THREE.DirectionalLight(0xffffff,2.2);sun.position.set(40,80,30);scene.add(sun);
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 500);
-camera.position.set(0, 10, 20);
+let root,yaw=0,pitch=0,lookPointer=null,lastX=0,lastY=0;
+const loader=new GLTFLoader();
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-renderer.setSize(innerWidth, innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1;
-document.body.appendChild(renderer.domElement);
+function putCameraOnHouseFloor(){
+  // Recalculate after translating the model. The old code used the pre-translation
+  // bounding box, which could put the camera below the entire landscape.
+  const all=new THREE.Box3().setFromObject(root);
+  const named=[];
+  root.traverse(o=>{
+    if(!o.isMesh)return;
+    const n=(o.name+" "+(o.parent?.name||"")).toLowerCase();
+    if(/house|villa|building|interior|room|floor|wall|door|living|kitchen|bedroom|roof/.test(n)) named.push(o);
+  });
+  const house=new THREE.Box3();
+  if(named.length){house.makeEmpty();named.forEach(m=>house.expandByObject(m));}
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 2.0));
-const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-sun.position.set(40, 80, 30);
-scene.add(sun);
-
-let root;
-let yaw = Math.PI;
-let pitch = -0.25;
-let lookPointer = null;
-let lastX = 0;
-let lastY = 0;
-
-const loader = new GLTFLoader();
-loader.load("./MODEL-02-09222026.glb", g => {
-  root = g.scene;
-  scene.add(root);
-
-  const box = new THREE.Box3().setFromObject(root);
-  const center = box.getCenter(new THREE.Vector3());
-  root.position.sub(new THREE.Vector3(center.x, box.min.y, center.z));
-
-  const usableY = Math.max(6, (box.max.y - box.min.y) * 0.12 + 2);
-  const frontDistance = Math.max(18, (box.max.z - box.min.z) * 0.75);
-
-  // Always start well above the modeled terrain and look toward the model center.
-  camera.position.set(0, usableY + 8, frontDistance);
-  camera.lookAt(0, usableY, 0);
-  yaw = Math.PI;
-  pitch = -0.25;
-
-  document.getElementById("start").style.display = "none";
-}, undefined, e => {
-  document.getElementById("start").innerHTML = "<div>Could not load the villa model.</div>";
-  console.error(e);
-});
-
-renderer.domElement.addEventListener("pointerdown", e => {
-  lookPointer = e.pointerId;
-  lastX = e.clientX;
-  lastY = e.clientY;
-  renderer.domElement.setPointerCapture(e.pointerId);
-});
-
-renderer.domElement.addEventListener("pointermove", e => {
-  if (e.pointerId !== lookPointer) return;
-  yaw -= (e.clientX - lastX) * 0.004;
-  pitch -= (e.clientY - lastY) * 0.003;
-  pitch = Math.max(-1.25, Math.min(1.25, pitch));
-  lastX = e.clientX;
-  lastY = e.clientY;
-});
-
-renderer.domElement.addEventListener("pointerup", () => lookPointer = null);
-renderer.domElement.addEventListener("pointercancel", () => lookPointer = null);
-
-const keys = {};
-addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
-addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
-
-const joystick = document.createElement("div");
-joystick.style.cssText = "position:fixed;left:20px;bottom:55px;width:110px;height:110px;border-radius:55px;background:#0005;pointer-events:auto;touch-action:none;";
-document.body.appendChild(joystick);
-const knob = document.createElement("div");
-knob.style.cssText = "position:absolute;left:30px;top:30px;width:50px;height:50px;border-radius:25px;background:#fff9;";
-joystick.appendChild(knob);
-
-let joyId = null;
-let jx = 0;
-let jy = 0;
-
-joystick.addEventListener("pointerdown", e => {
-  joyId = e.pointerId;
-  joystick.setPointerCapture(e.pointerId);
-  moveJoy(e);
-});
-joystick.addEventListener("pointermove", e => {
-  if (e.pointerId === joyId) moveJoy(e);
-});
-joystick.addEventListener("pointerup", resetJoy);
-joystick.addEventListener("pointercancel", resetJoy);
-
-function moveJoy(e) {
-  const r = joystick.getBoundingClientRect();
-  const cx = r.left + r.width / 2;
-  const cy = r.top + r.height / 2;
-
-  let dx = e.clientX - cx;
-  let dy = e.clientY - cy;
-  if (Math.hypot(dx, dy) > 38) {
-    const a = Math.atan2(dy, dx);
-    dx = Math.cos(a) * 38;
-    dy = Math.sin(a) * 38;
+  // Prefer a named house/floor region. Otherwise use horizontal upward-facing
+  // triangles at the lower, compact part of the model and reject the broad terrain.
+  let b=named.length?house:all;
+  let floorY=b.min.y;
+  if(!named.length){
+    const levels=new Map();
+    root.updateMatrixWorld(true);
+    root.traverse(o=>{
+      if(!o.isMesh||!o.geometry.attributes.position)return;
+      const p=o.geometry.attributes.position,n=o.geometry.attributes.normal;
+      for(let i=0;i<p.count-2;i+=3){
+        const a=new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
+        const c=new THREE.Vector3().fromBufferAttribute(p,i+1).applyMatrix4(o.matrixWorld);
+        const d=new THREE.Vector3().fromBufferAttribute(p,i+2).applyMatrix4(o.matrixWorld);
+        const normal=c.clone().sub(a).cross(d.clone().sub(a)).normalize();
+        if(normal.y<.92)continue;
+        const area=c.clone().sub(a).cross(d.clone().sub(a)).length()*.5;
+        if(area<.01)continue;
+        const y=Math.round(((a.y+c.y+d.y)/3)*20)/20;
+        const q=levels.get(y)||{area:0,minX:Infinity,maxX:-Infinity,minZ:Infinity,maxZ:-Infinity};
+        q.area+=area;q.minX=Math.min(q.minX,a.x,c.x,d.x);q.maxX=Math.max(q.maxX,a.x,c.x,d.x);q.minZ=Math.min(q.minZ,a.z,c.z,d.z);q.maxZ=Math.max(q.maxZ,a.z,c.z,d.z);levels.set(y,q);
+      }
+    });
+    let best=null;
+    for(const [y,q] of levels){const footprint=(q.maxX-q.minX)*(q.maxZ-q.minZ);if(footprint<=0||footprint>(all.max.x-all.min.x)*(all.max.z-all.min.z)*.7)continue;const score=q.area/(1+footprint*.001);if(!best||score>best.score)best={y,q,score};}
+    if(best){floorY=best.y;b=new THREE.Box3(new THREE.Vector3(best.q.minX,floorY,best.q.minZ),new THREE.Vector3(best.q.maxX,floorY+4,best.q.maxZ));}
   }
-
-  jx = dx / 38;
-  jy = dy / 38;
-  knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  const height=Math.max(1.6,Math.min(2.0,(all.max.y-all.min.y)*.08));
+  const x=(b.min.x+b.max.x)/2,z=(b.min.z+b.max.z)/2;
+  camera.position.set(x,floorY+height,z);
+  const target=new THREE.Vector3(x,floorY+height,z-1);
+  camera.lookAt(target);yaw=Math.atan2(target.x-x,target.z-z);pitch=0;
 }
 
-function resetJoy() {
-  joyId = null;
-  jx = 0;
-  jy = 0;
-  knob.style.transform = "";
-}
+loader.load("./MODEL-02-09222026.glb",g=>{
+  root=g.scene;scene.add(root);
+  const before=new THREE.Box3().setFromObject(root),center=before.getCenter(new THREE.Vector3());
+  root.position.sub(new THREE.Vector3(center.x,before.min.y,center.z));
+  root.updateMatrixWorld(true);
+  putCameraOnHouseFloor();
+  document.getElementById("start").style.display="none";
+},undefined,e=>{document.getElementById("start").innerHTML="<div>Could not load the villa model.</div>";console.error(e)});
 
-const ray = new THREE.Raycaster();
-function blocked(next) {
-  if (!root) return false;
-  const dir = next.clone().sub(camera.position);
-  dir.y = 0;
-  const len = dir.length();
-  if (!len) return false;
-  dir.normalize();
-  ray.set(camera.position.clone().setY(camera.position.y), dir);
-  const hits = ray.intersectObject(root, true);
-  return hits.length && hits[0].distance < Math.max(0.35, len);
-}
-
-const clock = new THREE.Clock();
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
-
-  camera.rotation.order = "YXZ";
-  camera.rotation.set(pitch, yaw, 0);
-
-  let f = 0;
-  let s = 0;
-
-  if (keys["w"] || keys["arrowup"]) f += 1;
-  if (keys["s"] || keys["arrowdown"]) f -= 1;
-  if (keys["a"] || keys["arrowleft"]) s -= 1;
-  if (keys["d"] || keys["arrowright"]) s += 1;
-
-  f += -jy;
-  s += jx;
-
-  const speed = 3.0;
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-  const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-  const move = forward.multiplyScalar(f * speed * dt).add(side.multiplyScalar(s * speed * dt));
-  const next = camera.position.clone().add(move);
-
-  if (!blocked(next)) camera.position.copy(next);
-
-  renderer.render(scene, camera);
-}
-
-animate();
-addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-
-document.querySelector("#start button").onclick = () => {
-  document.getElementById("start").style.display = "none";
-};
+renderer.domElement.addEventListener("pointerdown",e=>{lookPointer=e.pointerId;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)});
+renderer.domElement.addEventListener("pointermove",e=>{if(e.pointerId!==lookPointer)return;yaw-=(e.clientX-lastX)*.004;pitch-=(e.clientY-lastY)*.003;pitch=Math.max(-1.25,Math.min(1.25,pitch));lastX=e.clientX;lastY=e.clientY});
+renderer.domElement.addEventListener("pointerup",()=>lookPointer=null);renderer.domElement.addEventListener("pointercancel",()=>lookPointer=null);
+const keys={};addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+const joystick=document.createElement("div");joystick.style.cssText="position:fixed;left:20px;bottom:55px;width:110px;height:110px;border-radius:55px;background:#0005;pointer-events:auto;touch-action:none";document.body.appendChild(joystick);const knob=document.createElement("div");knob.style.cssText="position:absolute;left:30px;top:30px;width:50px;height:50px;border-radius:25px;background:#fff9";joystick.appendChild(knob);let joyId=null,jx=0,jy=0;
+joystick.addEventListener("pointerdown",e=>{joyId=e.pointerId;joystick.setPointerCapture(e.pointerId);moveJoy(e)});joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyId)moveJoy(e)});joystick.addEventListener("pointerup",resetJoy);joystick.addEventListener("pointercancel",resetJoy);
+function moveJoy(e){const r=joystick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy;if(Math.hypot(dx,dy)>38){const a=Math.atan2(dy,dx);dx=Math.cos(a)*38;dy=Math.sin(a)*38}jx=dx/38;jy=dy/38;knob.style.transform=`translate(${dx}px,${dy}px)`}function resetJoy(){joyId=null;jx=jy=0;knob.style.transform=""}
+const ray=new THREE.Raycaster();function blocked(next){if(!root)return false;const d=next.clone().sub(camera.position);d.y=0;const len=d.length();if(!len)return false;d.normalize();ray.set(camera.position.clone().setY(camera.position.y),d);const h=ray.intersectObject(root,true)[0];return h&&h.distance<Math.max(.35,len)}
+const clock=new THREE.Clock();function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);camera.rotation.order="YXZ";camera.rotation.set(pitch,yaw,0);let f=0,s=0;if(keys.w||keys.arrowup)f++;if(keys.s||keys.arrowdown)f--;if(keys.a||keys.arrowleft)s--;if(keys.d||keys.arrowright)s++;f-=jy;s+=jx;const speed=3,forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw)),side=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw)),next=camera.position.clone().add(forward.multiplyScalar(f*speed*dt).add(side.multiplyScalar(s*speed*dt)));if(!blocked(next))camera.position.copy(next);renderer.render(scene,camera)}animate();
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});document.querySelector("#start button").onclick=()=>document.getElementById("start").style.display="none";
 </script>
 </body>
 </html>
