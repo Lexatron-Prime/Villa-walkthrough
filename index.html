@@ -28,51 +28,41 @@ const sun=new THREE.DirectionalLight(0xffffff,2.2);sun.position.set(40,80,30);sc
 let root,yaw=0,pitch=0,lookPointer=null,lastX=0,lastY=0;
 const loader=new GLTFLoader();
 
-function putCameraOnHouseFloor(){
-  // Recalculate after translating the model. The old code used the pre-translation
-  // bounding box, which could put the camera below the entire landscape.
-  const all=new THREE.Box3().setFromObject(root);
-  const named=[];
-  root.traverse(o=>{
-    if(!o.isMesh)return;
-    const n=(o.name+" "+(o.parent?.name||"")).toLowerCase();
-    if(/house|villa|building|interior|room|floor|wall|door|living|kitchen|bedroom|roof/.test(n)) named.push(o);
+function materialIsLandscape(material){
+  const mats=Array.isArray(material)?material:[material];
+  return mats.some(m=>{
+    if(!m||!m.color)return false;
+    const c=m.color;
+    return c.g>c.r*1.25 && c.g>c.b*1.18 && c.g>.12;
   });
-  const house=new THREE.Box3();
-  if(named.length){house.makeEmpty();named.forEach(m=>house.expandByObject(m));}
-
-  // Prefer a named house/floor region. Otherwise use horizontal upward-facing
-  // triangles at the lower, compact part of the model and reject the broad terrain.
-  let b=named.length?house:all;
-  let floorY=b.min.y;
-  if(!named.length){
-    const levels=new Map();
-    root.updateMatrixWorld(true);
-    root.traverse(o=>{
-      if(!o.isMesh||!o.geometry.attributes.position)return;
-      const p=o.geometry.attributes.position,n=o.geometry.attributes.normal;
-      for(let i=0;i<p.count-2;i+=3){
-        const a=new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(o.matrixWorld);
-        const c=new THREE.Vector3().fromBufferAttribute(p,i+1).applyMatrix4(o.matrixWorld);
-        const d=new THREE.Vector3().fromBufferAttribute(p,i+2).applyMatrix4(o.matrixWorld);
-        const normal=c.clone().sub(a).cross(d.clone().sub(a)).normalize();
-        if(normal.y<.92)continue;
-        const area=c.clone().sub(a).cross(d.clone().sub(a)).length()*.5;
-        if(area<.01)continue;
-        const y=Math.round(((a.y+c.y+d.y)/3)*20)/20;
-        const q=levels.get(y)||{area:0,minX:Infinity,maxX:-Infinity,minZ:Infinity,maxZ:-Infinity};
-        q.area+=area;q.minX=Math.min(q.minX,a.x,c.x,d.x);q.maxX=Math.max(q.maxX,a.x,c.x,d.x);q.minZ=Math.min(q.minZ,a.z,c.z,d.z);q.maxZ=Math.max(q.maxZ,a.z,c.z,d.z);levels.set(y,q);
-      }
-    });
-    let best=null;
-    for(const [y,q] of levels){const footprint=(q.maxX-q.minX)*(q.maxZ-q.minZ);if(footprint<=0||footprint>(all.max.x-all.min.x)*(all.max.z-all.min.z)*.7)continue;const score=q.area/(1+footprint*.001);if(!best||score>best.score)best={y,q,score};}
-    if(best){floorY=best.y;b=new THREE.Box3(new THREE.Vector3(best.q.minX,floorY,best.q.minZ),new THREE.Vector3(best.q.maxX,floorY+4,best.q.maxZ));}
-  }
-  const height=Math.max(1.6,Math.min(2.0,(all.max.y-all.min.y)*.08));
-  const x=(b.min.x+b.max.x)/2,z=(b.min.z+b.max.z)/2;
-  camera.position.set(x,floorY+height,z);
-  const target=new THREE.Vector3(x,floorY+height,z-1);
-  camera.lookAt(target);yaw=Math.atan2(target.x-x,target.z-z);pitch=0;
+}
+function getBuildingBounds(){
+  const all=new THREE.Box3().setFromObject(root), candidates=[];
+  root.traverse(o=>{
+    if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return;
+    // The screenshot shows the house as gray and the unwanted site as green.
+    // Exclude green landscape meshes before calculating the spawn area.
+    if(materialIsLandscape(o.material))return;
+    const b=new THREE.Box3().setFromObject(o), size=b.getSize(new THREE.Vector3());
+    const volume=size.x*size.y*size.z;
+    if(size.y<.02||volume<.0001)return;
+    candidates.push({mesh:o,b});
+  });
+  if(!candidates.length)return all;
+  const b=new THREE.Box3();candidates.forEach(x=>b.union(x.b));
+  return b;
+}
+function placeInsideBuilding(){
+  const b=getBuildingBounds(), size=b.getSize(new THREE.Vector3());
+  // Put the viewer in the gray building's central volume, at human eye height.
+  // Do not use the green landscape's minimum Y.
+  const eyeY=b.min.y+Math.max(1.55,Math.min(1.8,size.y*.42));
+  const x=b.min.x+size.x*.50;
+  const z=b.min.z+size.z*.50;
+  camera.position.set(x,eyeY,z);
+  const target=new THREE.Vector3(x+size.x*.15,eyeY,z-size.z*.25);
+  camera.lookAt(target);
+  yaw=Math.atan2(target.x-x,target.z-z);pitch=0;
 }
 
 loader.load("./MODEL-02-09222026.glb",g=>{
@@ -80,7 +70,7 @@ loader.load("./MODEL-02-09222026.glb",g=>{
   const before=new THREE.Box3().setFromObject(root),center=before.getCenter(new THREE.Vector3());
   root.position.sub(new THREE.Vector3(center.x,before.min.y,center.z));
   root.updateMatrixWorld(true);
-  putCameraOnHouseFloor();
+  placeInsideBuilding();
   document.getElementById("start").style.display="none";
 },undefined,e=>{document.getElementById("start").innerHTML="<div>Could not load the villa model.</div>";console.error(e)});
 
